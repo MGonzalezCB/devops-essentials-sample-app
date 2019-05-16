@@ -1,5 +1,4 @@
 pipeline {
-    cleanup
     agent any
     stages {
         stage('Build') {
@@ -40,6 +39,7 @@ pipeline {
             when {
                 branch 'master'
             }
+            cleanup
             steps {
                 input 'Does the staging environment look OK?'
                 milestone(1)
