@@ -1,4 +1,5 @@
 pipeline {
+    cleanup
     agent any
     stages {
         stage('Build') {
