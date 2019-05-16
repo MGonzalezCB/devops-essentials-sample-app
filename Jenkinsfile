@@ -39,8 +39,8 @@ pipeline {
             when {
                 branch 'master'
             }
-            cleanup
-            steps {
+            sayHello
+              steps {
                 input 'Does the staging environment look OK?'
                 milestone(1)
                 withCredentials([string(credentialsId: 'cloud_user_pw', variable: 'USERPASS')]) {
