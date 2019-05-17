@@ -39,13 +39,12 @@ pipeline {
             when {
                 branch 'master'
             }
-            sayHello
               steps {
                 input 'Does the staging environment look OK?'
                 milestone(1)
                 withCredentials([string(credentialsId: 'cloud_user_pw', variable: 'USERPASS')]) {
                     sshPublisher(
-                        failOnError: true,
+                        failOnError: trhue,
                         publishers: [
                             sshPublisherDesc(
                                 configName: 'production',
