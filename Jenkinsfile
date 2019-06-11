@@ -1,68 +1,78 @@
 pipeline {
-    agent any
-    stages {
-        stage('Build') {
-            steps {
-                echo 'Running build automation'
-                sh './gradlew build'
-                archiveArtifacts artifacts: 'src/index.html'
-            }
+  agent {
+    label "jenkins-gradle"
+  }
+  environment {
+    ORG = 'parogui'
+    APP_NAME = 'devops-essentials-sample-app'
+    CHARTMUSEUM_CREDS = credentials('jenkins-x-chartmuseum')
+    DOCKER_REGISTRY_ORG = 'parogui'
+  }
+  stages {
+    stage('CI Build and push snapshot') {
+      when {
+        branch 'PR-*'
+      }
+      environment {
+        PREVIEW_VERSION = "0.0.0-SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER"
+        PREVIEW_NAMESPACE = "$APP_NAME-$BRANCH_NAME".toLowerCase()
+        HELM_RELEASE = "$PREVIEW_NAMESPACE".toLowerCase()
+      }
+      steps {
+        container('gradle') {
+          sh "gradle clean build"
+          sh "export VERSION=$PREVIEW_VERSION && skaffold build -f skaffold.yaml"
+          sh "jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:$PREVIEW_VERSION"
+          dir('./charts/preview') {
+            sh "make preview"
+            sh "jx preview --app $APP_NAME --dir ../.."
+          }
         }
-        stage('DeployToStage') {
-            when {
-                branch 'master'
-            }
-            steps {
-                withCredentials([string(credentialsId: 'cloud_user_pw', variable: 'USERPASS')]) {
-                    sshPublisher(
-                        failOnError: true,
-                        publishers: [
-                            sshPublisherDesc(
-                                configName: 'staging',
-                                sshCredentials: [
-                                    username: 'cloud_user',
-                                    encryptedPassphrase: "$USERPASS"
-                                ], 
-                                transfers: [
-                                    sshTransfer(
-                                        sourceFiles: 'src/**',
-                                        removePrefix: 'src/'
-                                    )
-                                ]
-                            )
-                        ]
-                    )
-                }
-            }
-        }
-        stage('DeployToProd') {
-            when {
-                branch 'master'
-            }
-              steps {
-                input 'Does the staging environment look OK?'
-                milestone(1)
-                withCredentials([string(credentialsId: 'cloud_user_pw', variable: 'USERPASS')]) {
-                    sshPublisher(
-                        failOnError: trhue,
-                        publishers: [
-                            sshPublisherDesc(
-                                configName: 'production',
-                                sshCredentials: [
-                                    username: 'cloud_user',
-                                    encryptedPassphrase: "$USERPASS"
-                                ], 
-                                transfers: [
-                                    sshTransfer(
-                                        sourceFiles: 'src/**',
-                                        removePrefix: 'src/'
-                                    )
-                                ]
-                            )
-                        ]
-                    )
-                }
-            }
-        }
+      }
     }
+    stage('Build Release') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('gradle') {
+
+          // ensure we're not on a detached head
+          sh "git checkout master"
+          sh "git config --global credential.helper store"
+          sh "jx step git credentials"
+
+          // so we can retrieve the version in later steps
+          sh "echo \$(jx-release-version) > VERSION"
+          sh "jx step tag --version \$(cat VERSION)"
+          sh "gradle clean build"
+          sh "export VERSION=`cat VERSION` && skaffold build -f skaffold.yaml"
+          sh "jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:\$(cat VERSION)"
+        }
+      }
+    }
+    stage('Promote to Environments') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('gradle') {
+          dir('./charts/devops-essentials-sample-app') {
+            sh "jx step changelog --version v\$(cat ../../VERSION)"
+
+            // release the helm chart
+            sh "jx step helm release"
+
+            // promote through all 'Auto' promotion Environments
+            sh "jx promote -b --all-auto --timeout 1h --version \$(cat ../../VERSION)"
+          }
+        }
+      }
+    }
+  }
+  post {
+        always {
+          cleanWs()
+        }
+  }
 }
