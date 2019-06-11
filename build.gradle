@@ -4,7 +4,6 @@ task test {
 
 task build {
 	//this code is here to help our lab grader determine the state of the lab. It should be omitted in a real-world situation.
-	apply plugin:'base'
 	String index = new File('src/index.html').text
 	String labState
 	if (index.contains("DevOps is awesome!")) {
